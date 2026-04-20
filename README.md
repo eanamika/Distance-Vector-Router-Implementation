@@ -182,13 +182,3 @@ With **`ROUTER_SKIP_IP=1`**, the process will not modify kernel routes (useful f
 docker rm -f router_a router_b router_c
 docker network rm net_ab net_bc net_ac
 ```
-
-## Report / presentation pointers
-
-- **Design:** Bellman–Ford (metric +1 per hop), **split horizon** on send, **metric cap** (16) and **neighbor timeouts** to drop stale next hops — relate these to **count-to-infinity** and **loops** when a link or node fails.
-- **Testing:** Describe building the image, creating networks, the pings and **`ip route`** above, and one **log snippet** showing convergence (from `docker logs`).
-- **Presentation (≈5 min):** Focus on **how you tested** and what you observed on **`ip route`** before/after stopping a router.
-
----
-
-*Course: Assignment 4 — Building a Custom Distance-Vector Router. Submission expectations (code + report + GitHub link) are set by your instructor.*
