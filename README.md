@@ -1,8 +1,8 @@
 # Assignment 4 — Distance-vector router (testing guide)
 
-This folder contains **`router.py`** (routing daemon) and a **`Dockerfile`** to run it in Alpine Linux with Python 3 and `iproute2`. Use this document to **build**, **deploy the triangle topology**, and **verify** behavior against the course requirements.
+This folder contains **`router.py`** and a **`Dockerfile`** to run it in Linux with Python 3 and `iproute2`. Use this document to **build**, **deploy the triangle topology**
 
-## What you are testing
+## What are we testing
 
 | Layer | What to verify |
 |--------|----------------|
@@ -35,8 +35,8 @@ Updates are UDP datagrams to port **5000**, JSON body:
 
 ## Prerequisites
 
-- **Docker** installed; use `sudo docker` if your user is not in the `docker` group.
-- **Linux host (recommended):** For cross-subnet pings over Docker bridges, you may need `net.bridge.bridge-nf-call-iptables=0` after bridges exist (see “Host bridge note” below).
+- **Docker** installed; use `sudo docker` if user is not in the `docker` group.
+- **Linux host (recommended):** For cross-subnet pings over Docker bridges, we may need `net.bridge.bridge-nf-call-iptables=0` after bridges exist (see “Host bridge note” below).
 
 ## 1. Build the image
 
@@ -69,7 +69,7 @@ sudo sysctl -w net.bridge.bridge-nf-call-iptables=0
 
 ## 4. Run the triangle (example layout)
 
-The assignment diagram uses one addressing pattern; your instructor may use another. Below is a **consistent** example that matches a typical lab (IPs on each `/24` are chosen so **A** has `10.0.1.x` and `10.0.3.x`, etc.). Adjust only if your sheet specifies different addresses.
+The assignment diagram uses one addressing pattern; Below is a **consistent** example that matches a typical lab (IPs on each `/24` are chosen so **A** has `10.0.1.x` and `10.0.3.x`, etc.). Adjust only if your sheet specifies different addresses.
 
 **Capabilities:** `ip route` inside the container requires:
 
