@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-UDP/JSON distance-vector process: Bellman-Ford path selection with split horizon.
+UDP/JSON distance-vector process: Bellman-Ford path selection with split horizon,
+poison reverse, neighbor silence timeouts, and periodic on-link rescan (link up/down).
 """
 
 from __future__ import annotations
@@ -232,6 +233,7 @@ def apply_bellman_step(
 ) -> bool:
     """Merge one advertisement into *table*; return True if anything changed."""
     changed = False
+    advertised: set = set()
     for item in routes:
         try:
             prefix = str(item["subnet"])
@@ -239,6 +241,8 @@ def apply_bellman_step(
         except (KeyError, TypeError, ValueError):
             print(f"[warn] bad route entry: {item}", flush=True)
             continue
+
+        advertised.add(prefix)
 
         if prefix in local_nets:
             continue
@@ -253,6 +257,9 @@ def apply_bellman_step(
 
         candidate = raw_cost + 1
         if candidate >= MAX_DISTANCE:
+            if existing is not None and existing[1] == sender_ip:
+                del table[prefix]
+                changed = True
             continue
 
         if existing is not None and existing[1] == sender_ip:
@@ -266,6 +273,15 @@ def apply_bellman_step(
             changed = True
         elif candidate < existing[0]:
             table[prefix] = [candidate, sender_ip]
+            changed = True
+
+    # Neighbor dropped a prefix from their table (e.g. link down, better path elsewhere).
+    # Without this, stale next-hop entries persist until the whole neighbor times out.
+    for prefix, (_cost, nh) in list(table.items()):
+        if prefix in local_nets or nh != sender_ip:
+            continue
+        if prefix not in advertised:
+            del table[prefix]
             changed = True
 
     return changed
@@ -297,6 +313,42 @@ def _integrate_advertisement(sender_ip: str, routes: List[Dict[str, Any]]) -> No
 def _touch_peer(peer: str) -> None:
     with _peer_lock:
         _peer_last_seen[peer] = time.monotonic()
+
+
+def _refresh_local_prefixes() -> None:
+    """Rescan interfaces: Docker link detach removes addresses; DV must stop treating /24 as local."""
+    global on_link_prefixes
+    new_local = frozenset(_collect_iface_prefixes())
+    with _state_lock:
+        old = on_link_prefixes
+        if new_local == old:
+            return
+        on_link_prefixes = new_local
+        removed = frozenset(old - new_local)
+        added = frozenset(new_local - old)
+        for p in removed:
+            forwarding_table.pop(p, None)
+        for p in added:
+            forwarding_table[p] = [0, "0.0.0.0"]
+        for loc in on_link_prefixes:
+            forwarding_table[loc] = [0, "0.0.0.0"]
+        snapshot = dict(forwarding_table)
+
+    if removed:
+        print(f"[iface] no longer on-link: {sorted(removed)}", flush=True)
+        for p in removed:
+            _remove_kernel_path(p)
+    if added:
+        print(f"[iface] new on-link: {sorted(added)}", flush=True)
+
+    _print_table()
+    for pfx, (cost, nh) in snapshot.items():
+        if pfx in on_link_prefixes:
+            _install_kernel_path(pfx, "0.0.0.0")
+        elif 0 < cost < MAX_DISTANCE:
+            _install_kernel_path(pfx, nh)
+        elif cost == 0:
+            _install_kernel_path(pfx, "0.0.0.0")
 
 
 def _forget_silent_peers() -> None:
@@ -356,8 +408,13 @@ def _periodic_announce() -> None:
                 payload_routes: List[Dict[str, Any]] = []
                 for row in rows:
                     if suppress_route_for_neighbor(peer, row["subnet"]):
-                        continue
-                    payload_routes.append(dict(row))
+                        # Poison reverse: explicit infinity so the peer can GC without
+                        # mistaking split-horizon omission for a withdrawal.
+                        payload_routes.append(
+                            {"subnet": row["subnet"], "distance": MAX_DISTANCE}
+                        )
+                    else:
+                        payload_routes.append(dict(row))
                 body = {
                     "router_id": SELF_ADDR,
                     "version": PROTOCOL_VERSION,
@@ -422,6 +479,7 @@ def _receive_loop() -> None:
 def _stale_loop() -> None:
     while True:
         time.sleep(STALE_SWEEP_SEC)
+        _refresh_local_prefixes()
         _forget_silent_peers()
 
 
